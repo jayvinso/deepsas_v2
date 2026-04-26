@@ -1,0 +1,25 @@
+# Ignore everything
+*
+
+!deepsas_v1.py
+!utils.py
+!model_AE.py
+!model_GAT.py
+!model_Sencell.py
+!subsampling.py
+!Generate_table_sampling.sh
+!run_experiments.sh
+
+!plot_figure.py
+!generate_3tables.py
+
+!senescence_marker_list.csv
+
+!example_data/
+!example_data/example_data.h5ad
+
+!.gitignore
+!README.md
+!Senescent_Tables_Explanation.md
+!Sampling_Tutorial.md
+!tutorial.ipynb
