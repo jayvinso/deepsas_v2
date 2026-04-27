@@ -1,3 +1,4 @@
+#NEW START: downstream analysis imports and font fallback
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -9,8 +10,17 @@ import torch
 
 import matplotlib
 import matplotlib.pyplot as plt
+from matplotlib import font_manager
 from matplotlib.colors import LinearSegmentedColormap
-matplotlib.rcParams.update({'font.family': 'Arial'})
+
+available_fonts = {font.name for font in font_manager.fontManager.ttflist}
+for _font in ["Arial", "DejaVu Sans", "Liberation Sans"]:
+    if _font in available_fonts:
+        matplotlib.rcParams.update({'font.family': _font})
+        break
+else:
+    matplotlib.rcParams.update({'font.family': 'sans-serif'})
+#NEW END: downstream analysis imports and font fallback
 
 
 color_ls = [
@@ -134,8 +144,11 @@ def check_celltypes(adata, predicted_cell_indexs):
 def load_snc_info(new_data,file_path,threshold=10):
     adata=new_data.copy()
 
-    sencell_dict,sen_gene_ls,attention_scores,edge_index_selfloop=torch.load(file_path)
-    sencell_indexs=list(sencell_dict.keys())
+    sencell_dict,sen_gene_ls,attention_scores,edge_index_selfloop=torch.load(file_path, map_location='cpu', weights_only=False)
+    # Saved sencell_dict keys can arrive as non-int scalars after torch load;
+    # normalize them once so downstream AnnData indexing stays valid.
+    #NEW START: downstream SnC index normalization and empty-set handling
+    sencell_indexs=[int(k) for k in sencell_dict.keys()]
 
     a=dict(check_celltypes(new_data,sencell_indexs))
     sorted_dict = dict(sorted(a.items(), key=lambda item: item[1], reverse=True))
@@ -153,7 +166,14 @@ def load_snc_info(new_data,file_path,threshold=10):
             sencell_indexs_updated.append(i)
             
     sencell_indexs=sencell_indexs_updated
-    row_indices= np.array(sencell_indexs)-new_data.shape[1]
+    # Phenotype-aware runs may legitimately save an empty SnC set. Return a
+    # consistent all-normal annotation so notebooks can keep iterating safely.
+    if not sencell_indexs:
+        print("Number of SnC: 0")
+        adata.obs['is_sen'] = 'normal'
+        adata.obs['new_ct'] = adata.obs['clusters'].astype(str)
+        return adata, adata[[]]
+    row_indices= np.array(sencell_indexs, dtype=int)-new_data.shape[1]
     new_column = np.array(['normal']*adata.shape[0])
     new_column[row_indices] = 'SnC'
     adata.obs['is_sen'] = new_column
@@ -167,12 +187,13 @@ def load_snc_info(new_data,file_path,threshold=10):
             return row['clusters']
     adata.obs['new_ct'] = adata.obs.apply(create_column, axis=1)
 
-    print(f"Number of SnC: {adata.obs['is_sen'].value_counts()['SnC']}")
+    print(f"Number of SnC: {adata.obs['is_sen'].value_counts().get('SnC', 0)}")
 
     sub_sencells=adata[adata.obs['is_sen']=='SnC']
     sub_sencells=sub_sencells[sub_sencells.obs["clusters"].isin(selected_ct)]
     
     return adata, sub_sencells
+    #NEW END: downstream SnC index normalization and empty-set handling
 
 
 
@@ -443,15 +464,19 @@ def generate_heatmap(adata,
 
 
 def bar_plot_condition(sub_sencells):
+    # The example pheno-off analysis is standardized on the `Status` column so
+    # the output plot order stays stable across repeated runs.
+    #NEW START: downstream condition plotting for retained pheno-off workflow
+
     grouped = (
-        sub_sencells.obs.groupby(["clusters", "Status"])
+        sub_sencells.obs.groupby(["clusters", "Status"], observed=False)
         .size()
         .reset_index(name="count")
     )
 
     # Pivot the table so 'disease_new' values become new columns
     pivot_table = grouped.pivot_table(
-        values="count", index="clusters", columns="Status", fill_value=0
+        values="count", index="clusters", columns="Status", fill_value=0, observed=False
     )
     print(pivot_table)
     # Calculate percentages
@@ -472,7 +497,8 @@ def bar_plot_condition(sub_sencells):
 
     percentage_table["total"] = pivot_table["total"]
 
-    percentage_table["total"] = percentage_table["total"].astype("int")
+    # Convert to float first to handle values like '16.0', then to int, filling NaNs with 0
+    percentage_table["total"] = percentage_table["total"].astype(float).fillna(0).astype(int)
     percentage_table = percentage_table.sort_values(by="total", ascending=True)
 
     # percentage_table.rename(columns={'Mixed': 'Healthy'}, inplace=True)
@@ -493,16 +519,20 @@ def bar_plot_condition(sub_sencells):
 
     plt.legend(bbox_to_anchor=(1.19, 1), loc="upper right")
     plt.show()
+    #NEW END: downstream condition plotting for retained pheno-off workflow
 
 
 def bar_plot_location(sub_sencells):
+    # Likewise, the retained downstream workflow expects `Area` and a fixed
+    # lobe/parenchyma ordering for the example phenotype outputs.
+    #NEW START: downstream location plotting for retained pheno-off workflow
     grouped = (
-        sub_sencells.obs.groupby(["clusters", "Area"]).size().reset_index(name="count")
+        sub_sencells.obs.groupby(["clusters", "Area"], observed=False).size().reset_index(name="count")
     )
 
     # Pivot the table so 'disease_new' values become new columns
     pivot_table = grouped.pivot_table(
-        values="count", index="clusters", columns="Area", fill_value=0
+        values="count", index="clusters", columns="Area", fill_value=0, observed=False
     )
     print(pivot_table)
 
@@ -526,7 +556,8 @@ def bar_plot_location(sub_sencells):
 
     percentage_table["total"] = pivot_table["total"]
 
-    percentage_table["total"] = percentage_table["total"].astype("int")
+    # Convert to float first to handle values like '16.0', then to int, filling NaNs with 0
+    percentage_table["total"] = percentage_table["total"].astype(float).fillna(0).astype(int)
     percentage_table = percentage_table.sort_values(by="total", ascending=True)
 
     new_order = ["cell type", "Upper Lobe", "Lower Lobe", "Parenchyma"]
@@ -549,6 +580,7 @@ def bar_plot_location(sub_sencells):
 
     plt.legend(bbox_to_anchor=(1.25, 1), loc="upper right")
     plt.show()
+    #NEW END: downstream location plotting for retained pheno-off workflow
 
 
 def bar_plot_age(sub_sencells):
@@ -637,6 +669,9 @@ def create_summary_table(adata):
         '# Old non-SnC', '# Old SnC', 'Old SnC%'
     ]
     
+    #NEW START: fixed-schema summary table for example phenotype analysis
+    # Build a fixed-schema table for the example phenotype workflow rather than
+    # inferring metadata columns dynamically from many possible datasets.
     # Prepare empty summary DataFrame
     summary_df = pd.DataFrame(columns=columns)
 
@@ -715,13 +750,16 @@ def create_summary_table(adata):
             'Old SnC%': old_pct
         }
 
-        # Concatenate this new row to summary_df
-        summary_df = pd.concat(
-            [summary_df, pd.DataFrame([row])],
-            ignore_index=True
-        )
+        # Concatenate this new row to summary_df, filtering out empty/all-NA DataFrames
+        new_row_df = pd.DataFrame([row])
+        if not new_row_df.isna().all(axis=None) and not new_row_df.empty:
+            summary_df = pd.concat(
+                [summary_df, new_row_df],
+                ignore_index=True
+            )
 
     return summary_df
+    #NEW END: fixed-schema summary table for example phenotype analysis
 
 
 
