@@ -27,13 +27,13 @@ class AE(nn.Module):
         return self.decode(z), z
 
 
-def reduction_AE(gene_cell, device):
+def reduction_AE(gene_cell, device, use_amp=True):
     gene = torch.tensor(gene_cell, dtype=torch.float32).to(device)
     if gene_cell.shape[0] < 5000:
         ba = gene_cell.shape[0]
     else:
         ba = 5000
-    gene_embed = train_AE(gene, ba, device)
+    gene_embed = train_AE(gene, ba, device, use_amp=use_amp)
 
     if gene_cell.shape[1] < 5000:
         ba = gene_cell.shape[1]
@@ -41,11 +41,11 @@ def reduction_AE(gene_cell, device):
         ba = 5000
     cell = torch.tensor(np.transpose(gene_cell),
                         dtype=torch.float32).to(device)
-    cell_embed = train_AE(cell, ba, device)
+    cell_embed = train_AE(cell, ba, device, use_amp=use_amp)
     return gene_embed, cell_embed
 
 
-def train_AE(feature, ba, device, alpha=0.5, is_init=False):
+def train_AE(feature, ba, device, alpha=0.5, is_init=False, use_amp=True):
     model = AE(dim=feature.shape[1]).to(device)
     model.train()
     
@@ -53,18 +53,20 @@ def train_AE(feature, ba, device, alpha=0.5, is_init=False):
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
     loss_func = nn.MSELoss()
+    use_amp = use_amp and device.type == 'cuda'
     EPOCH_AE = 2000
     for epoch in range(EPOCH_AE):
         embeddings = []
         # loss_ls=[]
         for _, batch_x in enumerate(loader):
-            decoded, encoded = model(batch_x)
-            loss = loss_func(batch_x, decoded)
+            with torch.autocast(device_type=device.type, dtype=torch.bfloat16, enabled=use_amp):
+                decoded, encoded = model(batch_x)
+                loss = loss_func(batch_x, decoded)
 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            embeddings.append(encoded)
+            embeddings.append(encoded.float())
         #     loss_ls.append(loss.item())
         # scheduler.step(np.mean(loss_ls))
     print('Epoch :', epoch, '|', 'train_loss:%.12f' % loss.data)
