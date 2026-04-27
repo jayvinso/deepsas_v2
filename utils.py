@@ -58,6 +58,18 @@ def parse_args():
                        help='Initial learning rate')
     parser.add_argument('--batch_id', type=int, default=0, 
                        help='Batch ID for processing')
+    #NEW START: CLI defaults adjusted for phenotype workflow
+    # Default BF16 off so phenotype-enabled runs only opt into it when the
+    # dataset and hardware path have been checked explicitly.
+    parser.add_argument('--mixed_precision', action='store_true', default=False,
+                       help='Enable BF16 mixed precision training for faster compute on compatible GPUs (default: False).')
+    parser.add_argument('--no-mixed_precision', dest='mixed_precision', action='store_false',
+                       help='Disable mixed precision training')
+    parser.add_argument('--phenotype_attention', action='store_true', default=True,
+                       help='Enable phenotype-aware attention when supported phenotype metadata is available (default: True). Use --no-phenotype_attention to disable.')
+    parser.add_argument('--no-phenotype_attention', dest='phenotype_attention', action='store_false',
+                       help='Disable phenotype-aware attention and always use the standard GAT encoder')
+    #NEW END: CLI defaults adjusted for phenotype workflow
 
     args = parser.parse_args()
     
@@ -144,7 +156,9 @@ def load_data1(path="/bmbl_data/huchen/deepSAS_data/new_anno_data1.h5ad"):
     # "/bmbl_data/chenghao/sencell/fixed_data_0520.h5ad", 7w cells
     print("load_data1 ...")
     adata = sp.read_h5ad(path)
-    ct_name='clusters'
+    #NEW START: updated default cell-type column for data1-style inputs
+    ct_name='cell_type'
+    #NEW END: updated default cell-type column for data1-style inputs
     
     sp.pp.filter_cells(adata, min_genes=200)
     sp.pp.filter_genes(adata, min_cells=10)
