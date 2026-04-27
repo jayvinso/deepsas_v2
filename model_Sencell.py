@@ -264,14 +264,24 @@ def cell_optim(cellmodel, optimizer, sencell_dict, nonsencell_dict,dgl_graph, ar
     #                                 weight_decay=1e-4)
     if train:
         cellmodel.train()
+        if (getattr(args, 'use_phenotype_attention', False)
+                and (len(sencell_dict) == 0 or len(nonsencell_dict) == 0)):
+            print('Skipping cell optimization: no senescent or non-senescent cells were selected.')
+            return cellmodel, sencell_dict, nonsencell_dict
+
         sencell_dict=process_dict(sencell_dict,dgl_graph,args)
         nonsencell_dict=process_dict(nonsencell_dict,dgl_graph,args)
         
+        use_amp = args.mixed_precision and args.device.type == 'cuda'
         for epoch in range(args.cell_optim_epoch):
             optimizer.zero_grad()
-            sencell_dict, nonsencell_dict = cellmodel(
-                sencell_dict, nonsencell_dict, args.device)
-            loss = cellmodel.loss(sencell_dict, nonsencell_dict)
+            with torch.autocast(device_type=args.device.type, dtype=torch.bfloat16, enabled=use_amp):
+                sencell_dict, nonsencell_dict = cellmodel(
+                    sencell_dict, nonsencell_dict, args.device)
+                loss = cellmodel.loss(sencell_dict, nonsencell_dict)
+            if getattr(args, 'use_phenotype_attention', False) and not torch.is_tensor(loss):
+                print('Skipping remaining cell optimization epochs: contrastive loss is empty.')
+                break
             print(loss.item())
             loss.backward()
             optimizer.step()
