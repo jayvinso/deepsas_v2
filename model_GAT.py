@@ -9,6 +9,8 @@ from torch.nn import Linear, ReLU, Dropout
 from torch_geometric.nn.models import InnerProductDecoder, GAE, VGAE
 from torch_geometric.nn import GATConv, GAE
 
+from disease_head import DiseaseHead
+
 
 # Define GAT-based encoder for GAE
 class GATEncoder(torch.nn.Module):
@@ -25,9 +27,16 @@ class GATEncoder(torch.nn.Module):
 
 # Initialize GAE model with GAT encoder and move it to the GPU
 class GAEModel(GAE):
-    def __init__(self, in_channels, out_channels):
+    def __init__(self, in_channels, out_channels, disease_head_hidden=0):
         encoder = GATEncoder(in_channels, out_channels)
         super(GAEModel, self).__init__(encoder)
+        self.disease_head = DiseaseHead(out_channels, disease_head_hidden)
+
+    def disease_logits(self, cell_z):
+        return self.disease_head(cell_z)
+
+    def disease_probabilities(self, cell_z):
+        return torch.sigmoid(self.disease_logits(cell_z))
 
     def get_attention_scores(self, data):
         x, edge_index = data.x, data.edge_index
@@ -109,4 +118,3 @@ class SenGAE(GAE):
         z = self.encode(graph)
         # adj_pred = self.decoder(z)
         return z
-

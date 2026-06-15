@@ -155,6 +155,11 @@ DeepSAS accepts the following parameters:
 - `--cell_optim_epoch`: Number of epochs for cell embedding optimization
 - `--learning_rate`: Initial learning rate
 - `--batch_id`: Batch ID for processing
+- `--disease_label_col`: Optional `adata.obs` column for Healthy vs. Disease labels
+- `--healthy_label_values`: Comma-separated values mapped to Healthy Control (`0`)
+- `--disease_label_values`: Optional comma-separated values mapped to Disease (`1`); when empty, all non-healthy non-missing values are Disease
+- `--disease_loss_weight`: Weight for the supervised disease BCE loss
+- `--disease_head_hidden`: Hidden size for the optional disease MLP head; `0` uses a linear head
 
 ## Output Files
 
@@ -164,6 +169,8 @@ DeepSAS generates the following output files in the specified output directory:
 - `{exp_name}_graphnx.data`: NetworkX graph representation of cell-gene interactions
 - `{exp_name}_graphpyg.data`: PyTorch Geometric graph representation for GAT model
 - `{exp_name}_GAT.pt`: Trained Graph Attention Network model
+- `{exp_name}_disease_scores.csv`: Per-cell disease probability scores when `--disease_label_col` is provided
+- `{exp_name}_disease_head_weights.csv`: Disease head parameter weights for downstream interpretation
 - `{exp_name}_sencellgene-epoch{epoch}.data`: Identified senescent cells and genes at each training epoch
 
 The final epoch output contains:

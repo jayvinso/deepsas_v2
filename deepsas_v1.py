@@ -4,6 +4,7 @@ from torch.optim.lr_scheduler import ExponentialLR
 
 import utils
 from model_AE import reduction_AE
+from disease_head import disease_loss, has_disease_labels, save_disease_outputs
 from model_GAT import GAEModel
 from model_Sencell import Sencell
 from model_Sencell import cell_optim, update_cell_embeddings
@@ -140,6 +141,13 @@ else:
         graph_nx=torch.load(os.path.join(args.output_dir, f'{args.exp_name}_graphnx.data'))
         graph_pyg=torch.load(os.path.join(args.output_dir, f'{args.exp_name}_graphpyg.data'))
 
+disease_labels = utils.build_disease_labels(new_data, args)
+graph_nx = utils.add_disease_labels_to_graph_nx(graph_nx, disease_labels, args.gene_num)
+graph_pyg = utils.attach_disease_labels(graph_pyg, disease_labels)
+if args.retrain:
+    torch.save(graph_nx, os.path.join(args.output_dir, f'{args.exp_name}_graphnx.data'))
+    torch.save(graph_pyg, os.path.join(args.output_dir, f'{args.exp_name}_graphpyg.data'))
+
 logger.info("Part 2, AE end!")
 logger.info("====== Part 3: GAT training ======")
 
@@ -147,10 +155,14 @@ data = graph_pyg
 data=data.to(device)
 torch.cuda.empty_cache() 
 
+def require_disease_head(model, data):
+    if has_disease_labels(data) and not hasattr(model, "disease_head"):
+        raise ValueError("Loaded GAT has no disease head; rerun with --retrain.")
+
 
 if args.retrain:
     # Initialize model and optimizer
-    model = GAEModel(args.emb_size, args.emb_size).to(device)
+    model = GAEModel(args.emb_size, args.emb_size, args.disease_head_hidden).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     
     # Training loop
@@ -158,15 +170,17 @@ if args.retrain:
         model.train()
         optimizer.zero_grad()
         z = model.encode(data.x, data.edge_index)
-        loss = model.recon_loss(z, data.edge_index)
+        recon = model.recon_loss(z, data.edge_index)
+        disease = disease_loss(model, data, z)
+        loss = recon + args.disease_loss_weight * disease
         loss.backward()
         optimizer.step()
-        return loss.item()
+        return loss.item(), recon.item(), disease.item()
     
     # Training the model
     for epoch in range(args.gat_epoch):
-        loss = train()
-        print(f'Epoch {epoch:03d}, Loss: {loss:.4f}')
+        loss, recon, disease = train()
+        print(f'Epoch {epoch:03d}, Loss: {loss:.4f}, Recon: {recon:.4f}, Disease: {disease:.4f}')
 
     GAT_path=os.path.join(args.output_dir, f'{args.exp_name}_GAT.pt')
     torch.save(model, GAT_path)
@@ -176,7 +190,9 @@ else:
     print(f'Load GAT from {GAT_path}')
     model=torch.load(GAT_path)
     model=model.to(device)
+    require_disease_head(model, data)
     
+save_disease_outputs(model, data, new_data, args)
 torch.cuda.empty_cache() 
 
 

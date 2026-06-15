@@ -3,6 +3,7 @@
 
 !deepsas_v1.py
 !utils.py
+!disease_head.py
 !model_AE.py
 !model_GAT.py
 !model_Sencell.py

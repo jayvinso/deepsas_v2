@@ -58,6 +58,16 @@ def parse_args():
                        help='Initial learning rate')
     parser.add_argument('--batch_id', type=int, default=0, 
                        help='Batch ID for processing')
+    parser.add_argument('--disease_label_col', type=str, default="",
+                       help='adata.obs column with healthy/disease labels')
+    parser.add_argument('--healthy_label_values', type=str, default="healthy,control,normal,healthy control,0",
+                       help='Comma-separated labels mapped to Healthy Control (0)')
+    parser.add_argument('--disease_label_values', type=str, default="",
+                       help='Optional comma-separated labels mapped to Disease (1)')
+    parser.add_argument('--disease_loss_weight', type=float, default=1.0,
+                       help='Weight lambda for supervised disease BCE loss')
+    parser.add_argument('--disease_head_hidden', type=int, default=0,
+                       help='Hidden size for optional disease MLP head; 0 uses linear')
 
     args = parser.parse_args()
     
@@ -69,6 +79,59 @@ def parse_args():
         parser.error("Number of epochs must be positive")
     
     return args
+
+
+def split_label_values(value):
+    return {i.strip().lower() for i in str(value).split(',') if i.strip()}
+
+
+def label_key(value):
+    if pd.isna(value):
+        return ""
+    return str(value).strip().lower()
+
+
+def disease_label_value(value, healthy_values, disease_values):
+    key = label_key(value)
+    if key in {"", "nan", "none", "na", "n/a"}:
+        return np.nan
+    if key in healthy_values:
+        return 0.0
+    if disease_values and key not in disease_values:
+        return np.nan
+    return 1.0
+
+
+def validate_disease_labels(labels):
+    if torch.isnan(labels).all():
+        raise ValueError("No usable disease labels after healthy/disease mapping.")
+    return labels
+
+
+def build_disease_labels(adata, args):
+    if not args.disease_label_col:
+        return None
+    if args.disease_label_col not in adata.obs:
+        raise ValueError(f"Missing disease label column: {args.disease_label_col}")
+    healthy = split_label_values(args.healthy_label_values)
+    disease = split_label_values(args.disease_label_values)
+    values = [disease_label_value(v, healthy, disease) for v in adata.obs[args.disease_label_col]]
+    labels = torch.tensor(values, dtype=torch.float32)
+    return validate_disease_labels(labels)
+
+
+def add_disease_labels_to_graph_nx(graph_nx, labels, gene_num):
+    if labels is None:
+        return graph_nx
+    for i, label in enumerate(labels.tolist()):
+        graph_nx.nodes[i + gene_num]['disease_label'] = None if np.isnan(label) else int(label)
+    return graph_nx
+
+
+def attach_disease_labels(graph_pyg, labels):
+    if labels is not None:
+        graph_pyg.disease_y = labels
+    return graph_pyg
 
 
 
